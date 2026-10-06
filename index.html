@@ -519,7 +519,6 @@ function renderMine(){
 document.getElementById("bClaimFree").onclick = ()=> doClaim(1);
 document.getElementById("bClaimAd").onclick = ()=> watchAdsgram(()=> doClaim(CFG.AD_MULTIPLIER));
 function doClaim(mult){
-  if(!requireVerified()) return;
   const y = pendingYield(); if(y<=0.000001) return;
   const total = y*mult;
   addCoins(total); S.lastClaim = now();
