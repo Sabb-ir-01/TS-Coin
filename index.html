@@ -1,1 +1,767 @@
-ts brand
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TS Coin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script src='//libtl.com/sdk.js' data-zone='11969992' data-sdk='show_11969992'></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* =====================================================================
+   TS COIN — Telegram Mini App
+   -----------------------------------------------------------------------
+   AD TRIGGER POINTS (exactly 3, all documented — Adsgram rule 10):
+   1. Mine tab — "2×" button next to Claim (Adsgram)
+   2. Tasks tab — "Quick ad" row, +7 TS, capped 15/day (Adsgram)
+   3. Tasks tab — "Partner ad" row, +5 TS, capped 15/day (Monetag)
+   Nothing else on the page ever calls an ad SDK.
+
+   COMPLIANCE (rules 0-11):
+   3/4  Claiming mining reward, both tasks, and leveling up all work with
+        a plain tap — ads only ever ADD a bonus, never gate an action.
+   6    First-run consent modal — user can decline and keep using the app.
+   9    Reward sizes are deliberately modest (see CFG below).
+   11   Real functionality beyond ads: a 24h-active mining cycle with a
+        sequential miner-level store, a repeatable task, a referral
+        system, and a wallet — not just an ad wall.
+
+   FIREBASE
+   Uses the Firestore config given by the project owner, via the Firebase
+   Web SDK CDN (no npm/bundler needed in a static file). Collection:
+   "tscoin_users", one document per Telegram user id. See syncToFirebase()
+   and registerVerificationOnFirebase() below for what's read/written.
+   SECURITY: the rules suggested separately in chat are a TEMPORARY, open
+   ruleset for development. Anyone can currently read/write this
+   collection from the browser console. Lock it down before real launch —
+   ideally by verifying Telegram's initData server-side (Cloud Function)
+   and minting a Firebase Auth token, not just trusting the client.
+   ===================================================================== */
+
+:root{
+  --bg:#0A121C; --bg2:#101B29; --bg3:#172537;
+  --line:rgba(255,255,255,.08);
+  --red:#E6453C; --red-dim:#A82E28;
+  --ice:#8FA6BD; --ice-dim:#5C7187;
+  --white:#F5F7FA;
+  --tx:#F3F6F9; --tx-dim:#9FB0C2; --tx-faint:#5E7084;
+  --r-s:10px; --r-m:16px; --r-l:22px;
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:radial-gradient(90% 55% at 50% -8%, #1B2D42 0%, var(--bg) 55%);
+  background-color:var(--bg);color:var(--tx);
+  font-family:'Inter',system-ui,sans-serif;
+  padding-top:var(--safe-t);padding-bottom:var(--safe-b);
+  overflow-x:hidden;
+}
+h1,h2,h3,.num{font-family:'Sora',sans-serif}
+::-webkit-scrollbar{display:none}
+#app{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
+
+/* header */
+header{padding:18px 18px 10px}
+.hrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-mark{width:40px;height:40px;flex-shrink:0}
+.brand-name{font-family:'Sora',sans-serif;font-size:19px;font-weight:800;letter-spacing:.4px;line-height:1.1}
+.brand-sub{font-size:11px;color:var(--tx-faint);margin-top:1px}
+.balance-chip{background:var(--bg2);border:1px solid var(--line);border-radius:999px;padding:7px 14px 7px 8px;display:flex;align-items:center;gap:7px}
+.balance-chip .ic{width:20px;height:20px}
+.balance-chip b{font-family:'Sora',sans-serif;font-size:14px}
+.balance-chip span{font-size:10px;color:var(--tx-faint);display:block;margin-top:-2px}
+
+/* pages */
+main{flex:1;padding:6px 18px 100px}
+.page{display:none;animation:fade .25s ease}
+.page.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-l);padding:18px}
+.card+.card{margin-top:12px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin:22px 0 10px}
+.section-head h2{font-size:15.5px;font-weight:800;margin:0;letter-spacing:.2px}
+.section-head .count{font-size:12px;color:var(--tx-faint)}
+.hint{font-size:12.5px;color:var(--tx-dim);line-height:1.5;margin:-2px 0 14px}
+
+/* mine hero */
+.mine-hero{position:relative;border-radius:var(--r-l);overflow:hidden;text-align:center;background:radial-gradient(120% 110% at 50% -10%,#24364C 0%,var(--bg2) 60%);border:1px solid var(--line);padding:20px 18px 18px}
+.badge-row{display:flex;justify-content:center;gap:8px;align-items:center;margin-bottom:10px}
+.badge{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;letter-spacing:.3px}
+.badge.active{background:rgba(143,166,189,.15);color:var(--ice)}
+.badge.inactive{background:rgba(230,69,60,.15);color:var(--red)}
+.speed-chip{font-size:10.5px;color:var(--tx-dim);background:var(--bg3);border-radius:999px;padding:4px 10px;display:inline-flex;align-items:center;gap:5px}
+.coin-wrap{width:128px;height:128px;margin:6px auto 12px;position:relative}
+.mine-label{font-size:11px;color:var(--tx-faint);letter-spacing:.4px;text-transform:uppercase}
+.mine-big{font-family:'Sora',sans-serif;font-size:30px;font-weight:800;line-height:1;margin-top:4px}
+.mine-big small{font-size:13px;color:var(--tx-faint);font-family:'Inter',sans-serif;font-weight:700}
+.mine-caption{font-size:11px;color:var(--tx-faint);margin-top:8px}
+.mine-actions{display:flex;gap:10px;margin-top:16px}
+
+.btn{flex:1;border:none;border-radius:var(--r-m);padding:13px 14px;font-family:'Inter',sans-serif;font-weight:800;font-size:13.5px;cursor:pointer;text-align:center;transition:transform .12s ease}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:linear-gradient(150deg,#FF6B61,var(--red));color:#fff}
+.btn.outline{background:transparent;color:var(--white);border:1.5px solid rgba(245,247,250,.3)}
+.btn.block{width:100%}
+.btn:disabled{opacity:.35;pointer-events:none}
+.btn .sub{display:block;font-size:10px;font-weight:700;opacity:.85;margin-top:1px}
+
+/* levels */
+.journey{background:var(--bg3);border-radius:var(--r-m);padding:14px;margin-bottom:12px}
+.journey-row{display:flex;justify-content:space-between;align-items:baseline}
+.journey-row b{font-family:'Sora',sans-serif;font-size:15px}
+.bar{height:6px;border-radius:999px;background:rgba(255,255,255,.08);margin-top:10px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--ice),var(--red));border-radius:999px}
+.journey-note{font-size:11px;color:var(--tx-faint);margin-top:7px}
+
+.lvl-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lvl{background:var(--bg3);border:1px solid var(--line);border-radius:var(--r-m);padding:13px}
+.lvl.current{border-color:var(--red);background:linear-gradient(160deg,rgba(230,69,60,.12),var(--bg3))}
+.lvl-top{display:flex;justify-content:space-between;align-items:center}
+.lvl-top b{font-family:'Sora',sans-serif;font-size:13.5px}
+.lvl-pill{font-size:9px;font-weight:800;padding:2px 7px;border-radius:999px}
+.lvl-pill.cur{background:var(--red);color:#fff}
+.lvl-pill.lock{background:rgba(255,255,255,.08);color:var(--tx-faint)}
+.lvl-speed{font-size:11px;color:var(--ice);margin-top:8px}
+.lvl-btn{width:100%;margin-top:10px;border:none;border-radius:9px;padding:8px;font-size:11.5px;font-weight:800;cursor:pointer;background:var(--bg2);color:var(--tx-faint)}
+.lvl-btn.ready{background:var(--red);color:#fff}
+.lvl-btn:disabled{opacity:.5;pointer-events:none}
+
+/* task rows */
+.trow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.trow:last-child{border-bottom:none}
+.tic{width:38px;height:38px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.tt{flex:1;min-width:0}
+.tt b{font-size:13.5px;display:block}
+.tt .rw{font-size:11.5px;color:var(--red)}
+.tb{border:none;border-radius:9px;padding:8px 12px;font-size:12px;font-weight:800;cursor:pointer;background:var(--red);color:#fff;white-space:nowrap}
+.tb.off{background:var(--bg3);color:var(--tx-faint)}
+.tb.done{background:transparent;color:var(--ice);border:1px solid var(--ice-dim)}
+.tb.wait{background:var(--bg3);color:var(--tx-dim)}
+
+/* team */
+.refbox{background:var(--bg3);border-radius:var(--r-m);padding:14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.refcode{font-family:'Sora',sans-serif;font-size:13.5px;letter-spacing:.2px;word-break:break-all}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.stat{background:var(--bg3);border-radius:var(--r-m);padding:13px}
+.stat b{font-family:'Sora',sans-serif;font-size:19px;display:block}
+.stat span{font-size:11px;color:var(--tx-faint)}
+
+/* wallet */
+.bal-card{background:linear-gradient(160deg,#1C2E44,var(--bg2));border:1px solid var(--line);border-radius:var(--r-l);padding:18px}
+.bal-label{font-size:11px;color:var(--tx-faint);letter-spacing:.3px;text-transform:uppercase}
+.bal-big{font-family:'Sora',sans-serif;font-size:30px;font-weight:800;margin-top:4px}
+.bal-big small{font-size:13px;color:var(--tx-faint);font-weight:700;font-family:'Inter',sans-serif}
+.bal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.bal-mini{background:rgba(255,255,255,.04);border-radius:var(--r-s);padding:10px 12px}
+.bal-mini b{font-family:'Sora',sans-serif;font-size:15px;display:block}
+.bal-mini span{font-size:10px;color:var(--tx-faint)}
+.field{margin-top:12px}
+.field label{font-size:11.5px;color:var(--tx-dim);display:block;margin-bottom:6px}
+.field input{width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:var(--r-m);padding:12px 13px;color:var(--tx);font-size:14px;font-family:'Inter',sans-serif}
+.field input:focus{outline:none;border-color:var(--red)}
+.hist-row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.hist-row:last-child{border-bottom:none}
+.tag{font-size:10.5px;padding:3px 8px;border-radius:999px;font-weight:800;background:rgba(143,166,189,.15);color:var(--ice)}
+.empty-note{font-size:12px;color:var(--tx-faint);text-align:center;padding:18px 6px}
+.notice{background:linear-gradient(150deg,rgba(230,69,60,.14),transparent);border:1px solid var(--line);border-radius:var(--r-m);padding:13px 14px;font-size:12px;color:var(--tx-dim);line-height:1.55}
+.notice b{color:var(--white)}
+
+/* dock */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:10;max-width:480px;margin:0 auto;background:rgba(10,18,28,.9);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;padding:8px 6px calc(8px + var(--safe-b))}
+.dk{flex:1;background:none;border:none;color:var(--tx-faint);display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;font-size:9.5px;font-weight:800;cursor:pointer;border-radius:12px}
+.dk.on{color:var(--red)}
+.dk .di{width:19px;height:19px}
+
+/* modal */
+.modal-wrap{position:fixed;inset:0;background:rgba(5,9,14,.78);display:flex;align-items:flex-end;justify-content:center;z-index:50}
+.modal-wrap.hidden{display:none}
+.modal{width:100%;max-width:480px;background:var(--bg2);border:1px solid var(--line);border-radius:22px 22px 0 0;padding:22px 20px calc(22px + var(--safe-b))}
+.modal h3{margin:0 0 8px;font-size:18px;font-family:'Sora',sans-serif}
+.modal p{font-size:13px;color:var(--tx-dim);line-height:1.55;margin:0 0 16px}
+.modal .row{display:flex;gap:10px}
+
+.toast{position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translateX(-50%) translateY(10px);background:var(--bg3);border:1px solid var(--line);color:var(--tx);padding:11px 18px;border-radius:999px;font-size:12.5px;font-weight:700;opacity:0;transition:.25s ease;z-index:60;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="hrow">
+      <div class="brand">
+        <div class="brand-mark" id="brandMarkSmall"></div>
+        <div>
+          <div class="brand-name">TS COIN</div>
+          <div class="brand-sub" id="greet">Pre-launch mining</div>
+        </div>
+      </div>
+      <div class="balance-chip">
+        <div class="ic" id="chipIcon"></div>
+        <div><b id="hdrCoins">0</b><span>TS</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ============ MINE ============ -->
+    <section class="page on" id="page-mine">
+      <div class="mine-hero">
+        <div class="badge-row">
+          <span class="badge active" id="activeBadge">ACTIVE</span>
+          <span class="speed-chip" id="speedChip">Speed —</span>
+        </div>
+        <div class="coin-wrap" id="coinWrap"></div>
+        <div class="mine-label">Unclaimed reward</div>
+        <div class="mine-big" id="pendingYield">0<small> TS</small></div>
+        <div class="mine-caption" id="mineCaption">Claim within 24h to keep mining active.</div>
+        <div class="mine-actions">
+          <button class="btn outline" id="bClaimFree">Claim free</button>
+          <button class="btn primary" id="bClaimAd">2×<span class="sub">watch ad</span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LEVELS ============ -->
+    <section class="page" id="page-levels">
+      <div class="section-head" style="margin-top:14px"><h2>Miner levels</h2></div>
+      <div class="journey">
+        <div class="journey-row"><b id="lvlNow">Level 1</b><span class="hint" style="margin:0" id="lvlRate">— TS/hr</span></div>
+        <div class="bar"><i id="lvlBar" style="width:0%"></i></div>
+        <div class="journey-note" id="lvlNote"></div>
+      </div>
+      <div class="lvl-grid" id="lvlGrid"></div>
+    </section>
+
+    <!-- ============ TASKS ============ -->
+    <section class="page" id="page-tasks">
+      <div class="section-head" style="margin-top:14px"><h2>Tasks &amp; bonus ads</h2></div>
+      <div class="card" id="taskList"></div>
+    </section>
+
+    <!-- ============ TEAM ============ -->
+    <section class="page" id="page-team">
+      <div class="section-head" style="margin-top:14px"><h2>Invite your pack</h2></div>
+      <div class="card">
+        <p class="hint" style="margin-bottom:12px">Share your link. Team commission is calculated and credited server-side via Firebase.</p>
+        <div class="refbox"><span class="refcode" id="refLink">t.me/TS_CoinBot?start=…</span></div>
+        <div class="mine-actions" style="margin-top:12px">
+          <button class="btn primary" id="bShare">Share invite</button>
+          <button class="btn outline" id="bCopyRef">Copy link</button>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><b id="statRefs">0</b><span>Joined</span></div>
+          <div class="stat"><b id="statRefEarn">0</b><span>TS from team</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ WALLET ============ -->
+    <section class="page" id="page-wallet">
+      <div class="section-head" style="margin-top:14px"><h2>Wallet &amp; assets</h2></div>
+      <div class="bal-card">
+        <div class="bal-label">Active in-app balance</div>
+        <div class="bal-big" id="walBalance">0<small> TS</small></div>
+        <div class="bal-grid">
+          <div class="bal-mini"><b id="walEarned">0</b><span>Lifetime mined</span></div>
+          <div class="bal-mini"><b id="walPending">0</b><span>Pending withdraw</span></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="notice" id="launchNotice"></div>
+        <div class="field">
+          <label>TON wallet address (Tonkeeper / Trust Wallet)</label>
+          <input id="inAddr" placeholder="UQ…">
+        </div>
+        <div class="field">
+          <label>Amount (TS) — min <span id="walMin"></span>, gas fee <span id="walGas"></span></label>
+          <input id="inAmt" type="number" inputmode="numeric" placeholder="0">
+        </div>
+        <button class="btn block primary" id="bWithdraw" style="margin-top:14px">Queue withdrawal</button>
+      </div>
+      <div class="section-head"><h2>History</h2></div>
+      <div class="card" id="histList"></div>
+    </section>
+
+  </main>
+
+  <nav class="dock" id="dock"></nav>
+
+  <div class="modal-wrap" id="consentModal">
+    <div class="modal">
+      <h3>Boost your mining with ads?</h3>
+      <p>TS Coin mining, leveling up, and the channel/react tasks all work for free. You can optionally watch a short ad for bonus TS — it's never required, and you can decline and keep mining normally.</p>
+      <div class="row"><button class="btn outline" id="bDecline">Not now</button><button class="btn primary" id="bAgree">Agree</button></div>
+    </div>
+  </div>
+
+  <div class="modal-wrap hidden" id="verifyModal">
+    <div class="modal">
+      <h3>Verify to start mining</h3>
+      <p>To keep TS Coin fair, each miner is linked to one Telegram phone number. Share your contact once — it's standard Telegram verification, nothing is posted publicly.</p>
+      <div class="row"><button class="btn primary block" id="bVerify">Share contact to verify</button></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script type="module">
+"use strict";
+/* ---------------- FIREBASE ---------------- */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBEb3_43009CjZcboqaBZGLcHwIepLVriI",
+  authDomain: "pommer-orchard.firebaseapp.com",
+  databaseURL: "https://pommer-orchard-default-rtdb.firebaseio.com",
+  projectId: "pommer-orchard",
+  storageBucket: "pommer-orchard.firebasestorage.app",
+  messagingSenderId: "416526455294",
+  appId: "1:416526455294:web:a486339a479d62c783b0af",
+  measurementId: "G-Y47JMSD2RB"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+const USERS_COL = "tscoin_users";
+
+const tg = window.Telegram && window.Telegram.WebApp;
+if(tg){tg.ready();tg.expand();}
+
+/* ---------------- CONFIG ---------------- */
+const CFG = {
+  BOT_USERNAME: "TS_CoinBot",
+  ADSGRAM_BLOCK: "52342",
+  MONETAG_SDK: "show_11969992",
+  MODERATION_MODE: true,   // true = Monetag ad trigger disabled while Adsgram reviews this platform
+
+  LOGO_IMG: "",             // paste a real logo image URL here later to replace the SVG mark
+
+  LEVELS: [
+    {lvl:1, cost:0,     rate:24},
+    {lvl:2, cost:400,   rate:60},
+    {lvl:3, cost:1200,  rate:140},
+    {lvl:4, cost:3000,  rate:300},
+    {lvl:5, cost:7000,  rate:620},
+    {lvl:6, cost:15000, rate:1250},
+    {lvl:7, cost:32000, rate:2600},
+    {lvl:8, cost:65000, rate:5400}
+  ],
+  AD_MULTIPLIER: 2,
+  ACTIVE_WINDOW_HOURS: 24,
+
+  TASK_CHANNEL: {url:"https://t.me/TSCoinOfficial", reward:20},
+  TASK_REACT:   {url:"https://t.me/TSCoinOfficial", reward:5, cooldownHours:3},
+  TASK_START_DELAY_SEC: 10,
+
+  AD_A_REWARD: 7,  AD_A_DAILY_CAP: 15,  // Adsgram
+  AD_B_REWARD: 5,  AD_B_DAILY_CAP: 15,  // Monetag
+
+  MIN_WITHDRAW: 1000,
+  GAS_FEE: 55,
+  LAUNCH_DATE: "2026-11-01T00:00:00Z"
+};
+
+/* ---------------- STATE ---------------- */
+const now = () => Date.now();
+const todayKey = () => { const d=new Date(); return d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); };
+const DEFAULT = {
+  coins:0, totalEarned:0, level:1, lastClaim:now(),
+  taskChannelDone:false, taskChannelStarted:0,
+  lastReactClaim:0, reactStarted:0,
+  adADay:"", adACount:0, adBDay:"", adBCount:0,
+  refCount:0, refEarn:0, withdrawals:[],
+  consent:null, verified:false
+};
+let S = load();
+function load(){
+  try{ const raw = localStorage.getItem("tscoin_state"); if(raw) return Object.assign({}, DEFAULT, JSON.parse(raw)); }catch(e){}
+  return Object.assign({}, DEFAULT);
+}
+function save(){
+  try{ localStorage.setItem("tscoin_state", JSON.stringify(S)); }catch(e){}
+  queueFirebaseSync();
+}
+let __syncT=null;
+function queueFirebaseSync(){
+  clearTimeout(__syncT);
+  __syncT = setTimeout(syncToFirebase, 900);
+}
+async function syncToFirebase(){
+  try{
+    const ref = doc(db, USERS_COL, telegramUserId());
+    await setDoc(ref, {
+      coins:S.coins, totalEarned:S.totalEarned, level:S.level,
+      refCount:S.refCount, refEarn:S.refEarn,
+      withdrawals:S.withdrawals, verified:S.verified,
+      updatedAt: now()
+    }, { merge:true });
+  }catch(e){ /* offline or rules not set yet — fails silently, local state is unaffected */ }
+}
+async function registerVerificationOnFirebase(payload){
+  try{
+    const col = collection(db, USERS_COL);
+    const [snapPhone, snapDevice] = await Promise.all([
+      getDocs(query(col, where("phoneHash","==",payload.phoneHash))),
+      getDocs(query(col, where("deviceHash","==",payload.deviceHash)))
+    ]);
+    const clash = [...snapPhone.docs, ...snapDevice.docs].some(d => d.id !== payload.telegramId);
+    if(clash) return {ok:false};
+    await setDoc(doc(db, USERS_COL, payload.telegramId),
+      { phoneHash:payload.phoneHash, deviceHash:payload.deviceHash, verifiedAt:payload.at }, {merge:true});
+    return {ok:true};
+  }catch(e){
+    // Network/rules issue — fail OPEN so a legitimate user isn't locked out.
+    // This means the duplicate-check is only as strong as your Firestore
+    // rules + uptime. Real enforcement belongs in a Cloud Function.
+    return {ok:true};
+  }
+}
+
+/* ---------------- helpers ---------------- */
+function fmt(n,d=2){ return (Math.round(n*Math.pow(10,d))/Math.pow(10,d)).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:d}); }
+function toast(msg){
+  const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toast._h); toast._h=setTimeout(()=>t.classList.remove("show"),2200);
+}
+function telegramUserId(){
+  const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  return u && u.id ? String(u.id) : "guest";
+}
+function currentLevelDef(){ return CFG.LEVELS.find(l=>l.lvl===S.level) || CFG.LEVELS[0]; }
+function mineRatePerHour(){ return currentLevelDef().rate; }
+function hoursSinceClaim(){ return (now()-S.lastClaim)/3600000; }
+function isActive(){ return hoursSinceClaim() < CFG.ACTIVE_WINDOW_HOURS; }
+function pendingYield(){
+  const hrs = Math.min(hoursSinceClaim(), CFG.ACTIVE_WINDOW_HOURS);
+  return Math.max(0, hrs * mineRatePerHour());
+}
+function addCoins(n){ S.coins += n; S.totalEarned += n; }
+
+/* ---------------- device fingerprint + hashing (anti multi-account, layer 1) --- */
+function deviceFingerprint(){
+  try{
+    const c=document.createElement("canvas"); const ctx=c.getContext("2d");
+    ctx.textBaseline="top"; ctx.font="14px Arial"; ctx.fillText("tscoin-fp",2,2);
+    const raw = c.toDataURL()+"|"+navigator.userAgent+"|"+screen.width+"x"+screen.height+"|"+(navigator.language||"");
+    let h=0; for(let i=0;i<raw.length;i++){ h=(h*31+raw.charCodeAt(i))|0; }
+    return "fp_"+Math.abs(h);
+  }catch(e){ return "fp_unknown"; }
+}
+async function sha256Hex(str){
+  try{
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  }catch(e){ return "hash_unavailable"; }
+}
+
+/* ---------------- ADS (3 documented trigger points only) --- */
+let __ag=null;
+function watchAdsgram(onReward, onFail){
+  if(!window.Adsgram){ toast("No ad available right now"); onFail&&onFail(); return; }
+  try{
+    __ag = __ag || window.Adsgram.init({ blockId: CFG.ADSGRAM_BLOCK });
+    __ag.show().then(onReward).catch(()=>{ toast("No ad available right now"); onFail&&onFail(); });
+  }catch(e){ toast("No ad available right now"); onFail&&onFail(); }
+}
+function watchMonetag(onReward, onFail){
+  if(CFG.MODERATION_MODE || !window[CFG.MONETAG_SDK]){ toast("No ad available right now"); onFail&&onFail(); return; }
+  window[CFG.MONETAG_SDK]('pop').then(onReward).catch(()=>{ toast("No ad available right now"); onFail&&onFail(); });
+}
+
+/* ---------------- simple inline icons (no emoji — low-poly wolf mark) --- */
+const COIN_SVG = `
+<svg viewBox="0 0 120 120" width="100%" height="100%">
+  <defs>
+    <radialGradient id="ring" cx="35%" cy="30%" r="80%">
+      <stop offset="0%" stop-color="#FF8A80"/><stop offset="55%" stop-color="#E6453C"/><stop offset="100%" stop-color="#8E251F"/>
+    </radialGradient>
+  </defs>
+  <circle cx="60" cy="60" r="56" fill="url(#ring)" stroke="#F5F7FA" stroke-width="2" stroke-opacity=".5"/>
+  <circle cx="60" cy="60" r="46" fill="none" stroke="#F5F7FA" stroke-width="1" stroke-opacity=".25"/>
+  <g fill="#F5F7FA">
+    <polygon points="38,44 46,22 54,42"/>
+    <polygon points="82,44 74,22 66,42"/>
+    <polygon points="54,40 66,40 74,58 60,84 46,58"/>
+    <polygon points="52,52 58,52 55,60"/>
+    <polygon points="68,52 62,52 65,60"/>
+  </g>
+  <text x="60" y="102" text-anchor="middle" font-family="Sora,sans-serif" font-weight="800" font-size="15" fill="#F5F7FA" letter-spacing="1">TS</text>
+</svg>`;
+const MARK_SVG_SMALL = `<svg viewBox="0 0 120 120" width="100%" height="100%"><circle cx="60" cy="60" r="56" fill="#E6453C"/><g fill="#F5F7FA"><polygon points="38,44 46,22 54,42"/><polygon points="82,44 74,22 66,42"/><polygon points="54,40 66,40 74,58 60,84 46,58"/></g></svg>`;
+
+function renderBrandMarks(){
+  const put = (id)=>{ const el=document.getElementById(id); el.innerHTML = CFG.LOGO_IMG ? `<img src="${CFG.LOGO_IMG}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : MARK_SVG_SMALL; };
+  put("brandMarkSmall"); put("chipIcon");
+  document.getElementById("coinWrap").innerHTML = CFG.LOGO_IMG ? `<img src="${CFG.LOGO_IMG}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : COIN_SVG;
+}
+
+/* ================= MINE ================= */
+function renderMine(){
+  const active = isActive();
+  const badge = document.getElementById("activeBadge");
+  badge.textContent = active ? "ACTIVE" : "INACTIVE";
+  badge.className = "badge "+(active?"active":"inactive");
+  document.getElementById("speedChip").textContent = "Speed "+fmt(mineRatePerHour()/3600,4)+" TS/s";
+  document.getElementById("pendingYield").innerHTML = fmt(pendingYield(),6)+"<small> TS</small>";
+
+  if(active){
+    const remain = CFG.ACTIVE_WINDOW_HOURS*3600000 - (now()-S.lastClaim);
+    const h = Math.floor(remain/3600000), m = Math.floor((remain%3600000)/60000);
+    document.getElementById("mineCaption").textContent = `Active for ${h}h ${m}m — claim before it ends.`;
+  } else {
+    document.getElementById("mineCaption").textContent = "Mining paused — claim now to restart.";
+  }
+  const nothing = pendingYield() <= 0.000001;
+  document.getElementById("bClaimFree").disabled = nothing;
+  document.getElementById("bClaimAd").disabled = nothing;
+}
+document.getElementById("bClaimFree").onclick = ()=> doClaim(1);
+document.getElementById("bClaimAd").onclick = ()=> watchAdsgram(()=> doClaim(CFG.AD_MULTIPLIER));
+function doClaim(mult){
+  if(!requireVerified()) return;
+  const y = pendingYield(); if(y<=0.000001) return;
+  const total = y*mult;
+  addCoins(total); S.lastClaim = now();
+  save(); renderAll(); toast("+"+fmt(total,4)+" TS claimed"+(mult>1?" (2×)":""));
+}
+
+/* ================= LEVELS ================= */
+function renderLevels(){
+  const cur = currentLevelDef();
+  const next = CFG.LEVELS.find(l=>l.lvl===S.level+1);
+  document.getElementById("lvlNow").textContent = "Level "+S.level;
+  document.getElementById("lvlRate").textContent = fmt(cur.rate,0)+" TS/hr";
+  if(next){
+    const pct = Math.min(100, (S.coins/next.cost)*100);
+    document.getElementById("lvlBar").style.width = pct+"%";
+    document.getElementById("lvlNote").textContent = fmt(Math.max(0,next.cost-S.coins),0)+" TS to Level "+next.lvl;
+  } else {
+    document.getElementById("lvlBar").style.width = "100%";
+    document.getElementById("lvlNote").textContent = "Max level reached";
+  }
+
+  const grid = document.getElementById("lvlGrid"); grid.innerHTML="";
+  CFG.LEVELS.forEach(l=>{
+    const state = l.lvl < S.level ? "past" : l.lvl===S.level ? "current" : l.lvl===S.level+1 ? "next" : "locked";
+    const el = document.createElement("div"); el.className="lvl"+(state==="current"?" current":"");
+    let pillHtml = state==="current" ? `<span class="lvl-pill cur">CURRENT</span>`
+      : state==="past" ? `<span class="lvl-pill cur" style="background:var(--ice)">CLEARED</span>`
+      : `<span class="lvl-pill lock">LOCKED</span>`;
+    let btnHtml;
+    if(state==="current" || state==="past"){
+      btnHtml = `<button class="lvl-btn" disabled>Active</button>`;
+    } else if(state==="next"){
+      const afford = S.coins >= l.cost;
+      btnHtml = `<button class="lvl-btn ${afford?"ready":""}" data-lvl="${l.lvl}" ${afford?"":"disabled"}>${afford?"Unlock":"Need "+fmt(l.cost-S.coins,0)+" TS"}</button>`;
+    } else {
+      btnHtml = `<button class="lvl-btn" disabled>Needs Lv.${l.lvl-1}</button>`;
+    }
+    el.innerHTML = `<div class="lvl-top"><b>Level ${l.lvl}</b>${pillHtml}</div><div class="lvl-speed">${fmt(l.rate,0)} TS/hr</div>${btnHtml}`;
+    grid.appendChild(el);
+  });
+  grid.querySelectorAll(".lvl-btn.ready").forEach(btn=>{
+    btn.onclick = ()=>{
+      if(!requireVerified()) return;
+      const l = CFG.LEVELS.find(x=>x.lvl===parseInt(btn.dataset.lvl,10));
+      if(S.coins < l.cost) return;
+      S.coins -= l.cost; S.level = l.lvl;
+      save(); renderAll(); toast("Reached Level "+l.lvl+"!");
+    };
+  });
+}
+
+/* ================= TASKS ================= */
+function renderTasks(){
+  const wrap = document.getElementById("taskList"); wrap.innerHTML="";
+
+  // Task 1: join channel (one-time)
+  {
+    const started = S.taskChannelStarted, done = S.taskChannelDone;
+    const elapsed = started ? (now()-started)/1000 : 0;
+    const ready = started && !done && elapsed >= CFG.TASK_START_DELAY_SEC;
+    const waiting = started && !done && elapsed < CFG.TASK_START_DELAY_SEC;
+    let label = done?"Done":ready?"Claim":waiting?Math.ceil(CFG.TASK_START_DELAY_SEC-elapsed)+"s":"Start";
+    let cls = done?"tb done":waiting?"tb wait":"tb";
+    wrap.appendChild(taskRow("📣","Join TS Coin channel","+"+CFG.TASK_CHANNEL.reward+" TS",label,cls,waiting||done,()=>{
+      if(!started){ S.taskChannelStarted=now(); openLink(CFG.TASK_CHANNEL.url); save(); renderAll(); }
+      else if(ready){ S.taskChannelDone=true; addCoins(CFG.TASK_CHANNEL.reward); save(); renderAll(); toast("+"+CFG.TASK_CHANNEL.reward+" TS"); }
+    }));
+  }
+
+  // Task 2: react to last post (every 3h)
+  {
+    const cdMs = CFG.TASK_REACT.cooldownHours*3600000;
+    const onCooldown = S.lastReactClaim && (now()-S.lastReactClaim) < cdMs;
+    const started = S.reactStarted, doneWindow = started && (now()-started)/1000 >= CFG.TASK_START_DELAY_SEC;
+    let label, cls, blocked=false;
+    if(onCooldown){
+      const left = cdMs-(now()-S.lastReactClaim);
+      label = Math.floor(left/3600000)+"h "+Math.floor((left%3600000)/60000)+"m"; cls="tb off"; blocked=true;
+    } else if(!started){ label="Start"; cls="tb"; }
+    else if(!doneWindow){ label=Math.ceil(CFG.TASK_START_DELAY_SEC-(now()-started)/1000)+"s"; cls="tb wait"; blocked=true; }
+    else { label="Claim"; cls="tb"; }
+    wrap.appendChild(taskRow("💬","React to last post","+"+CFG.TASK_REACT.reward+" TS (every 3h)",label,cls,blocked,()=>{
+      if(onCooldown) return;
+      if(!started){ S.reactStarted=now(); openLink(CFG.TASK_REACT.url); save(); renderAll(); }
+      else if(doneWindow){ S.lastReactClaim=now(); S.reactStarted=0; addCoins(CFG.TASK_REACT.reward); save(); renderAll(); toast("+"+CFG.TASK_REACT.reward+" TS"); }
+    }));
+  }
+
+  // Bonus ad A (Adsgram)
+  {
+    if(S.adADay!==todayKey()){ S.adADay=todayKey(); S.adACount=0; }
+    const left = CFG.AD_A_DAILY_CAP - S.adACount;
+    const label = left<=0 ? "0 left" : "Watch";
+    wrap.appendChild(taskRow("🎬","Quick ad","+"+CFG.AD_A_REWARD+" TS · "+Math.max(0,left)+"/"+CFG.AD_A_DAILY_CAP+" today",label,left<=0?"tb off":"tb",left<=0,()=>{
+      if(!requireVerified()) return;
+      if(left<=0){ toast("Come back tomorrow"); return; }
+      watchAdsgram(()=>{ S.adACount++; addCoins(CFG.AD_A_REWARD); save(); renderAll(); toast("+"+CFG.AD_A_REWARD+" TS"); });
+    }));
+  }
+  // Bonus ad B (Monetag)
+  {
+    if(S.adBDay!==todayKey()){ S.adBDay=todayKey(); S.adBCount=0; }
+    const left = CFG.AD_B_DAILY_CAP - S.adBCount;
+    const label = left<=0 ? "0 left" : "Watch";
+    wrap.appendChild(taskRow("🎞️","Partner ad","+"+CFG.AD_B_REWARD+" TS · "+Math.max(0,left)+"/"+CFG.AD_B_DAILY_CAP+" today",label,left<=0?"tb off":"tb",left<=0,()=>{
+      if(!requireVerified()) return;
+      if(left<=0){ toast("Come back tomorrow"); return; }
+      watchMonetag(()=>{ S.adBCount++; addCoins(CFG.AD_B_REWARD); save(); renderAll(); toast("+"+CFG.AD_B_REWARD+" TS"); });
+    }));
+  }
+}
+function taskRow(icon,title,rewardText,btnLabel,btnCls,disabled,onClick){
+  const row=document.createElement("div"); row.className="trow";
+  row.innerHTML = `<div class="tic">${icon}</div><div class="tt"><b>${title}</b><span class="rw">${rewardText}</span></div><button class="${btnCls}" ${disabled?"disabled":""}>${btnLabel}</button>`;
+  if(!disabled) row.querySelector("button").onclick = onClick;
+  return row;
+}
+function openLink(url){ if(tg&&tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url,"_blank"); }
+setInterval(renderTasks, 1000);
+
+/* ================= TEAM ================= */
+function renderTeam(){
+  const link = "https://t.me/"+CFG.BOT_USERNAME+"?start="+telegramUserId();
+  document.getElementById("refLink").textContent = link.replace("https://","");
+  document.getElementById("statRefs").textContent = S.refCount;
+  document.getElementById("statRefEarn").textContent = fmt(S.refEarn,0);
+  document.getElementById("bShare").onclick = ()=>{
+    const url = "https://t.me/share/url?url="+encodeURIComponent(link)+"&text="+encodeURIComponent("Mining TS Coin — join my pack:");
+    openLink(url);
+  };
+  document.getElementById("bCopyRef").onclick = ()=>{ navigator.clipboard && navigator.clipboard.writeText(link); toast("Link copied"); };
+}
+
+/* ================= WALLET ================= */
+function renderWallet(){
+  document.getElementById("walBalance").innerHTML = fmt(S.coins,2)+"<small> TS</small>";
+  document.getElementById("walEarned").textContent = fmt(S.totalEarned,0);
+  const pendingWd = S.withdrawals.filter(w=>w.status==="queued").reduce((s,w)=>s+w.amount,0);
+  document.getElementById("walPending").textContent = fmt(pendingWd,0);
+  document.getElementById("walMin").textContent = fmt(CFG.MIN_WITHDRAW,0)+" TS";
+  document.getElementById("walGas").textContent = fmt(CFG.GAS_FEE,0)+" TS";
+
+  const launch = new Date(CFG.LAUNCH_DATE).getTime();
+  const daysLeft = Math.max(0, Math.ceil((launch-now())/86400000));
+  document.getElementById("launchNotice").innerHTML =
+    `<b>Pre-launch phase.</b> TS Coin's token is expected on TON in ~${daysLeft} day${daysLeft===1?"":"s"} `+
+    `(viewable in wallets like Tonkeeper / Trust Wallet once deployed — a plan, not a guarantee). `+
+    `Withdrawals made now are queued and sent after launch.`;
+
+  const hist = document.getElementById("histList"); hist.innerHTML="";
+  if(S.withdrawals.length===0){ hist.innerHTML = `<div class="empty-note">No withdrawal requests yet.</div>`; }
+  else{
+    [...S.withdrawals].reverse().forEach(w=>{
+      const row=document.createElement("div"); row.className="hist-row";
+      row.innerHTML = `<span>${new Date(w.at).toLocaleDateString()} · ${fmt(w.amount,0)} TS (net ${fmt(w.amount-CFG.GAS_FEE,0)})</span><span class="tag">${w.status}</span>`;
+      hist.appendChild(row);
+    });
+  }
+}
+document.getElementById("bWithdraw").onclick = ()=>{
+  if(!requireVerified()) return;
+  const addr = document.getElementById("inAddr").value.trim();
+  const amt = parseFloat(document.getElementById("inAmt").value);
+  if(!addr || addr.length<6){ toast("Enter a valid TON wallet address"); return; }
+  if(!amt || amt<=0){ toast("Enter an amount"); return; }
+  if(amt < CFG.MIN_WITHDRAW){ toast("Minimum is "+fmt(CFG.MIN_WITHDRAW,0)+" TS"); return; }
+  if(amt > S.coins){ toast("Not enough balance"); return; }
+  S.coins -= amt;
+  S.withdrawals.push({at:now(), amount:amt, addr, status:"queued"});
+  save(); renderAll();
+  document.getElementById("inAddr").value=""; document.getElementById("inAmt").value="";
+  toast("Withdrawal queued for after launch");
+};
+
+/* ================= NAV / DOCK ================= */
+const DOCK_ICONS = {
+  mine:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  levels:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16M7 19V10m5 9V5m5 14v-7"/></svg>`,
+  tasks:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/></svg>`,
+  team:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M15 15c2.5 0 5 1.6 5 4.5"/></svg>`,
+  wallet:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg>`
+};
+const TABS=[["mine","Mine"],["levels","Levels"],["tasks","Tasks"],["team","Team"],["wallet","Wallet"]];
+document.getElementById("dock").innerHTML = TABS.map((t,i)=>
+  `<button class="dk${i?"":" on"}" data-p="${t[0]}"><span class="di">${DOCK_ICONS[t[0]]}</span>${t[1]}</button>`).join("");
+document.querySelectorAll(".dk").forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll(".dk").forEach(b=>b.classList.remove("on"));
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
+    btn.classList.add("on");
+    document.getElementById("page-"+btn.dataset.p).classList.add("on");
+  };
+});
+
+/* ================= VERIFICATION ================= */
+function requireVerified(){
+  if(S.verified) return true;
+  document.getElementById("verifyModal").classList.remove("hidden");
+  return false;
+}
+document.getElementById("bVerify").onclick = ()=>{
+  if(!(tg && tg.requestContact)){ toast("Open this inside Telegram to verify"); return; }
+  tg.requestContact(async (shared, payload)=>{
+    if(!shared){ toast("Verification needed to earn"); return; }
+    let phone=""; try{ phone = JSON.parse(payload).contact.phone_number; }catch(e){}
+    const phoneHash = await sha256Hex(phone||"unknown");
+    const deviceHash = deviceFingerprint();
+    const result = await registerVerificationOnFirebase({ telegramId:telegramUserId(), phoneHash, deviceHash, at:now() });
+    if(result && result.ok){
+      S.verified=true; save();
+      document.getElementById("verifyModal").classList.add("hidden");
+      toast("Verified — happy mining!");
+    } else {
+      toast("This phone/device is already linked to another account");
+    }
+  });
+};
+
+/* ================= RENDER ALL ================= */
+function renderAll(){
+  document.getElementById("hdrCoins").textContent = fmt(S.coins,2);
+  const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  document.getElementById("greet").textContent = u&&u.first_name ? "Hi, "+u.first_name : "Pre-launch mining";
+  renderMine(); renderLevels(); renderTasks(); renderTeam(); renderWallet();
+}
+renderBrandMarks();
+renderAll();
+setInterval(renderAll, 1000);
+
+/* ================= CONSENT MODAL ================= */
+const modal = document.getElementById("consentModal");
+if(S.consent===null){ modal.classList.remove("hidden"); } else { modal.classList.add("hidden"); }
+document.getElementById("bAgree").onclick = ()=>{ S.consent=true; save(); modal.classList.add("hidden"); };
+document.getElementById("bDecline").onclick = ()=>{ S.consent=false; save(); modal.classList.add("hidden"); };
+</script>
+</body>
+</html>
