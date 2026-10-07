@@ -6,7 +6,7 @@
 <title>TS Coin</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
-<script src='//libtl.com/sdk.js' data-zone='11969992' data-sdk='show_11969992'></script>
+<script src="https://libtl.com/sdk.js" data-zone="11969992" data-sdk="show_11969992"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -16,28 +16,21 @@
    AD TRIGGER POINTS (Adsgram rule 10):
    1. Mine tab — "2×" claim button (Adsgram)
    2. Tasks tab — "Quick ad" row (Adsgram)
-   3. Tasks tab — "Partner ad" row (Monetag)
-   A single shared 18s cooldown (CFG.AD_COOLDOWN_SEC) applies after ANY
-   ad view, across both buttons, to stop rapid repeat-clicking.
+   3. Tasks tab — "Partner ad" row (Monetag, rewarded interstitial)
+   Cooldown (CFG.AD_COOLDOWN_SEC = 18s) is PER NETWORK: after an Adsgram ad
+   only Adsgram waits 18s; after a Monetag ad only Monetag waits 18s.
+   So a user can watch one network's ad and the other network's ad right away.
 
-   LEVEL SYSTEM — changed to "auto by holding":
-   No coins are ever spent to level up. Your level is purely a function
-   of your current TS balance ("holding") vs CFG.LEVELS thresholds, and
-   is recalculated by recomputeLevel() every time coins change. Only a
-   window of levels near the user's current one is rendered — see
-   renderLevels() — instead of all 30 at once.
+   LEVEL SYSTEM — auto by holding:
+   Level = function of current TS balance. Mining yield is settled at the
+   old rate before the balance changes, so a level-up never rewrites the
+   hours already mined (see settle()).
 
-   REFERRALS — needs Firestore, not just localStorage:
-   Each user gets a stable 8-char code (buildRefCode) from their
-   Telegram id. A new user who opens the app via ?start=<code> stores it
-   as referredBy. Once that NEW user finishes both tasks and has watched
-   3 lifetime ad views, their own client credits them +85 TS AND writes
-   a claim doc to Firestore ("referral_claims"). The REFERRER's client
-   picks that claim up next time they open the Team tab (reads Firestore,
-   credits +85 TS once per claim id). This is not instant/real-time —
-   it syncs when the referrer's Team tab is opened — because there's no
-   Cloud Function here to push it immediately. Needs the open Firestore
-   dev rule already set earlier to keep working.
+   REFERRALS:
+   Only the INVITER gets +85 TS. The new user starts from 0 and earns
+   normally. When the invited user finishes both tasks + 3 ads, a claim doc
+   is written to Firestore; the inviter's client credits +85 TS (once per
+   claim) when they open the Team tab.
    ===================================================================== */
 
 :root{
@@ -79,18 +72,22 @@ main{flex:1;padding:14px 18px 110px}
 .section-head .count{font-size:12px;color:var(--ink-faint)}
 .hint{font-size:12.5px;color:var(--ink-dim);line-height:1.5;margin:-2px 0 14px}
 
-.mine-hero{position:relative;border-radius:var(--r-l);overflow:hidden;background:linear-gradient(155deg,#3A0E12 0%,#7A1420 55%,#B01C28 100%);padding:20px 18px 18px;color:#fff;box-shadow:0 10px 30px rgba(176,28,40,.25)}
-.badge-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+/* ---- mine hero: big centered coin ---- */
+.mine-hero{position:relative;border-radius:var(--r-l);overflow:hidden;background:linear-gradient(155deg,#3A0E12 0%,#7A1420 55%,#B01C28 100%);padding:20px 18px 20px;color:#fff;box-shadow:0 10px 30px rgba(176,28,40,.25)}
+.badge-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;position:relative;z-index:1}
 .badge{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;letter-spacing:.3px;background:rgba(255,255,255,.14);color:#fff}
 .badge.inactive{color:#FFD3D3}
 .speed-chip{font-size:10.5px;color:rgba(255,255,255,.75);background:rgba(255,255,255,.1);border-radius:999px;padding:4px 10px}
-.mine-mid{display:flex;align-items:center;gap:14px}
-.coin-wrap{width:72px;height:72px;flex-shrink:0}
-.mine-label{font-size:10.5px;color:rgba(255,255,255,.65);letter-spacing:.4px;text-transform:uppercase}
-.mine-big{font-family:'Sora',sans-serif;font-size:26px;font-weight:800;line-height:1.15;margin-top:3px}
-.mine-big small{font-size:12px;color:rgba(255,255,255,.7);font-family:'Inter',sans-serif;font-weight:700}
-.mine-caption{font-size:11px;color:rgba(255,255,255,.65);margin-top:3px}
-.mine-actions{display:flex;gap:10px;margin-top:16px}
+.mine-center{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center}
+.mine-center::before{content:"";position:absolute;top:0;left:50%;width:300px;height:300px;transform:translateX(-50%);background:radial-gradient(circle,rgba(255,120,128,.38) 0%,rgba(255,120,128,0) 66%);pointer-events:none}
+.coin-wrap{position:relative;width:min(62vw,230px);height:min(62vw,230px);margin:8px auto 12px;flex-shrink:0;filter:drop-shadow(0 14px 26px rgba(0,0,0,.45));animation:floaty 3.4s ease-in-out infinite}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.mine-label{position:relative;font-size:10.5px;color:rgba(255,255,255,.65);letter-spacing:.4px;text-transform:uppercase}
+.mine-big{position:relative;font-family:'Sora',sans-serif;font-size:30px;font-weight:800;line-height:1.15;margin-top:3px}
+.mine-big small{font-size:13px;color:rgba(255,255,255,.7);font-family:'Inter',sans-serif;font-weight:700}
+.mine-caption{position:relative;font-size:11.5px;color:rgba(255,255,255,.7);margin-top:4px}
+.mine-actions{display:flex;gap:10px;margin-top:18px;position:relative}
+.mine-rule{margin-top:12px;text-align:center;font-size:11px;color:rgba(255,255,255,.72);position:relative}
 
 /* capsule / pill buttons — two-tone like a medicine tablet */
 .btn{position:relative;flex:1;border:none;border-radius:999px;padding:13px 14px;font-family:'Inter',sans-serif;font-weight:800;font-size:13.5px;cursor:pointer;text-align:center;transition:transform .12s ease;overflow:hidden;isolation:isolate}
@@ -131,7 +128,8 @@ main{flex:1;padding:14px 18px 110px}
 .tt{flex:1;min-width:0}
 .tt b{font-size:13.5px;display:block;color:var(--ink)}
 .tt .rw{font-size:11.5px;color:var(--red-dk)}
-.tb{position:relative;border:none;border-radius:999px;padding:9px 14px;font-size:12px;font-weight:800;cursor:pointer;background:linear-gradient(180deg,#FF5C65,var(--red-dk));color:#fff;white-space:nowrap;overflow:hidden}
+.tb{position:relative;border:none;border-radius:999px;padding:9px 14px;min-width:78px;text-align:center;font-size:12px;font-weight:800;cursor:pointer;background:linear-gradient(180deg,#FF5C65,var(--red-dk));color:#fff;white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums}
+.tb.wide{min-width:122px}
 .tb::before{content:"";position:absolute;inset:0 0 50% 0;background:rgba(255,255,255,.22)}
 .tb>*{position:relative}
 .tb.off{background:var(--sink);color:var(--ink-faint)}
@@ -219,19 +217,19 @@ main{flex:1;padding:14px 18px 110px}
           <span class="badge" id="activeBadge">ACTIVE</span>
           <span class="speed-chip" id="speedChip">Speed —</span>
         </div>
-        <div class="mine-mid">
+        <div class="mine-center">
           <div class="coin-wrap" id="coinWrap"></div>
-          <div>
-            <div class="mine-label">Unclaimed reward</div>
-            <div class="mine-big" id="pendingYield">0<small> TS</small></div>
-            <div class="mine-caption" id="mineCaption">Claim within 24h to keep mining active.</div>
-          </div>
+          <div class="mine-label">Unclaimed reward</div>
+          <div class="mine-big" id="pendingYield">0<small> TS</small></div>
+          <div class="mine-caption" id="mineCaption"></div>
         </div>
         <div class="mine-actions">
           <button class="btn outline" id="bClaimFree">Claim free</button>
-          <button class="btn primary" id="bClaimAd">2×<span class="sub">watch ad</span></button>
+          <button class="btn primary" id="bClaimAd">2×<span class="sub" id="adSub">watch ad</span></button>
         </div>
+        <div class="mine-rule">⏱ Claim within 24 hours to keep mining active.</div>
       </div>
+      <div class="card" style="margin-top:12px;padding:6px 18px" id="mineOpts"></div>
     </section>
 
     <section class="page" id="page-levels">
@@ -253,7 +251,7 @@ main{flex:1;padding:14px 18px 110px}
     <section class="page" id="page-team">
       <div class="team-banner">
         <b>Invite friends &amp;<br>earn more TS</b>
-        <p>You both get 85 TS once your friend finishes both tasks and watches 3 ads.</p>
+        <p>You get 85 TS when your friend finishes both tasks and watches 3 ads. Your friend starts from 0 and earns their own TS by mining.</p>
         <button class="btn solid" style="max-width:150px" id="bShare">Start inviting →</button>
       </div>
       <div class="stat-grid">
@@ -360,29 +358,32 @@ const CFG = {
 
   AD_A_REWARD: 5, AD_A_DAILY_CAP: 15,   // Adsgram
   AD_B_REWARD: 4, AD_B_DAILY_CAP: 15,   // Monetag
-  AD_COOLDOWN_SEC: 18,                  // shared cooldown after ANY ad view
+  AD_COOLDOWN_SEC: 18,                  // per-network cooldown
 
-  REFERRAL_REWARD: 85,
+  REFERRAL_REWARD: 85,                  // paid to the inviter only
   REFERRAL_ADS_REQUIRED: 3,
 
   MIN_WITHDRAW: 1000,
   GAS_FEE: 55,
   LAUNCH_DATE: "2026-11-01T00:00:00Z"
 };
+const WINDOW_MS = CFG.ACTIVE_WINDOW_HOURS*3600000;
 
 /* ---------------- STATE ---------------- */
 const now = () => Date.now();
 const todayKey = () => { const d=new Date(); return d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); };
 const DEFAULT = {
-  coins:0, totalEarned:0, level:1, lastClaim:now(),
+  coins:0, totalEarned:0, level:1, lastClaim:now(), accrued:0, accruedAt:0,
   taskChannelDone:false, taskChannelStarted:0,
   lastReactClaim:0, reactStarted:0,
   adADay:"", adACount:0, adBDay:"", adBCount:0,
-  adATotal:0, adBTotal:0, lastAdWatchAt:0,
+  adATotal:0, adBTotal:0, lastAdAAt:0, lastAdBAt:0,
   referredBy:null, qualified:false, refCount:0, refEarn:0, creditedClaims:[],
   withdrawals:[], consent:null
 };
 let S = load();
+if(!S.accruedAt) S.accruedAt = S.lastClaim;
+if(typeof S.accrued !== "number") S.accrued = 0;
 function load(){
   try{ const raw = localStorage.getItem("tscoin_state"); if(raw) return Object.assign({}, DEFAULT, JSON.parse(raw)); }catch(e){}
   return Object.assign({}, DEFAULT);
@@ -415,8 +416,23 @@ function telegramUserId(){
   const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
   return u && u.id ? String(u.id) : "guest";
 }
-function addCoins(n){ S.coins += n; S.totalEarned += n; }
+/* settle() banks the yield mined so far at the CURRENT level's rate.
+   It runs before any balance change, so a level-up never changes the
+   rate used for hours that were already mined. */
+function settle(){
+  const end = Math.min(now(), S.lastClaim + WINDOW_MS);
+  if(end > S.accruedAt){
+    S.accrued += (end - S.accruedAt)/3600000 * mineRatePerHour();
+    S.accruedAt = end;
+  }
+}
+function addCoins(n){ settle(); S.coins += n; S.totalEarned += n; }
 function openLink(url){ if(tg&&tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url,"_blank"); }
+function pad2(n){ return String(n).padStart(2,"0"); }
+function hms(ms){
+  const t = Math.max(0, Math.ceil(ms/1000));
+  return Math.floor(t/3600)+"h "+pad2(Math.floor((t%3600)/60))+"m "+pad2(t%60)+"s";
+}
 
 /* ---------------- level auto-compute ---------------- */
 function recomputeLevel(){
@@ -426,11 +442,11 @@ function recomputeLevel(){
 }
 function currentLevelDef(){ return CFG.LEVELS.find(l=>l.lvl===S.level) || CFG.LEVELS[0]; }
 function mineRatePerHour(){ return currentLevelDef().rate; }
-function hoursSinceClaim(){ return (now()-S.lastClaim)/3600000; }
-function isActive(){ return hoursSinceClaim() < CFG.ACTIVE_WINDOW_HOURS; }
+function isActive(){ return (now()-S.lastClaim) < WINDOW_MS; }
 function pendingYield(){
-  const hrs = Math.min(hoursSinceClaim(), CFG.ACTIVE_WINDOW_HOURS);
-  return Math.max(0, hrs * mineRatePerHour());
+  const end = Math.min(now(), S.lastClaim + WINDOW_MS);
+  const extra = end > S.accruedAt ? (end - S.accruedAt)/3600000 * mineRatePerHour() : 0;
+  return Math.max(0, S.accrued + extra);
 }
 
 /* ---------------- referral code (stable, derived from Telegram id) ---------------- */
@@ -446,21 +462,21 @@ function captureReferralStart(){
   const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
   if(sp && sp.startsWith("reff_") && sp !== myRefCode()){ S.referredBy = sp; save(); }
 }
+/* New user earns NOTHING extra here — the +85 TS goes only to the inviter
+   (credited from their own client via syncIncomingReferrals). */
 async function checkReferralQualification(){
   if(S.qualified || !S.referredBy) return;
   const tasksDone = S.taskChannelDone && S.lastReactClaim>0;
   const adsDone = (S.adATotal+S.adBTotal) >= CFG.REFERRAL_ADS_REQUIRED;
   if(!(tasksDone && adsDone)) return;
   S.qualified = true;
-  addCoins(CFG.REFERRAL_REWARD);
-  save(); renderAll();
-  toast("+"+CFG.REFERRAL_REWARD+" TS referral bonus!");
+  save();
   try{
     const { db, doc, setDoc } = await getFirebase();
     await setDoc(doc(db, CLAIMS_COL, telegramUserId()), {
       referrerCode: S.referredBy, newUserId: telegramUserId(), at: now()
     });
-  }catch(e){}
+  }catch(e){ S.qualified = false; save(); } // retry next time
 }
 async function syncIncomingReferrals(){
   try{
@@ -468,7 +484,6 @@ async function syncIncomingReferrals(){
     const snap = await getDocs(query(collection(db, CLAIMS_COL), where("referrerCode","==",myRefCode())));
     let changed=false;
     snap.forEach(d=>{
-      const data = d.data();
       if(!S.creditedClaims.includes(d.id)){
         S.creditedClaims.push(d.id);
         S.refCount++; S.refEarn += CFG.REFERRAL_REWARD;
@@ -476,25 +491,44 @@ async function syncIncomingReferrals(){
         changed = true;
       }
     });
-    if(changed){ save(); renderAll(); toast("New referral credited!"); }
+    if(changed){ save(); renderAll(); toast("+"+CFG.REFERRAL_REWARD+" TS — new referral!"); }
   }catch(e){}
 }
 
-/* ---------------- ADS (shared 18s cooldown across both trigger points) --- */
+/* ---------------- ADS (18s cooldown PER network) ---------------- */
 let __ag=null;
-function adsCoolingDown(){ return (now()-S.lastAdWatchAt) < CFG.AD_COOLDOWN_SEC*1000; }
+const AD_BUSY = {A:false, B:false};
+function adLeftSec(k){
+  const t = k==="A" ? S.lastAdAAt : S.lastAdBAt;
+  return Math.max(0, Math.ceil((CFG.AD_COOLDOWN_SEC*1000-(now()-t))/1000));
+}
+function markAd(k){ if(k==="A") S.lastAdAAt=now(); else S.lastAdBAt=now(); }
 function watchAdsgram(onReward){
-  if(adsCoolingDown()){ toast("Wait "+Math.ceil((CFG.AD_COOLDOWN_SEC*1000-(now()-S.lastAdWatchAt))/1000)+"s before the next ad"); return; }
+  if(AD_BUSY.A) return;
+  const left = adLeftSec("A");
+  if(left>0){ toast("Wait "+left+"s before the next Adsgram ad"); return; }
   if(!window.Adsgram){ toast("No ad available right now"); return; }
+  AD_BUSY.A = true;
   try{
     __ag = __ag || window.Adsgram.init({ blockId: CFG.ADSGRAM_BLOCK });
-    __ag.show().then(()=>{ S.lastAdWatchAt=now(); onReward(); }).catch(()=> toast("No ad available right now"));
-  }catch(e){ toast("No ad available right now"); }
+    __ag.show().then(()=>{ AD_BUSY.A=false; markAd("A"); onReward(); })
+              .catch(()=>{ AD_BUSY.A=false; toast("No ad available right now"); });
+  }catch(e){ AD_BUSY.A=false; toast("No ad available right now"); }
 }
+/* Monetag: rewarded INTERSTITIAL = show_ZONE() with no argument. The old code
+   passed 'pop', which is the rewarded POPUP format — that opens an external
+   website/tab instead of showing the ad inside the app. */
 function watchMonetag(onReward){
-  if(adsCoolingDown()){ toast("Wait "+Math.ceil((CFG.AD_COOLDOWN_SEC*1000-(now()-S.lastAdWatchAt))/1000)+"s before the next ad"); return; }
-  if(CFG.MODERATION_MODE || !window[CFG.MONETAG_SDK]){ toast("No ad available right now"); return; }
-  window[CFG.MONETAG_SDK]('pop').then(()=>{ S.lastAdWatchAt=now(); onReward(); }).catch(()=> toast("No ad available right now"));
+  if(AD_BUSY.B) return;
+  const left = adLeftSec("B");
+  if(left>0){ toast("Wait "+left+"s before the next Partner ad"); return; }
+  const fn = window[CFG.MONETAG_SDK];
+  if(CFG.MODERATION_MODE || typeof fn !== "function"){ toast("No ad available right now"); return; }
+  AD_BUSY.B = true;
+  let p;
+  try{ p = fn(); }catch(e){ AD_BUSY.B=false; toast("No ad available right now"); return; }
+  Promise.resolve(p).then(()=>{ AD_BUSY.B=false; markAd("B"); onReward(); })
+                    .catch(()=>{ AD_BUSY.B=false; toast("No ad available right now"); });
 }
 
 /* ---------------- brand marks ---------------- */
@@ -506,27 +540,57 @@ function renderBrandMarks(){
   document.getElementById("coinWrap").innerHTML = CFG.LOGO_IMG ? `<img src="${CFG.LOGO_IMG}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : COIN_SVG;
 }
 
+/* ---------------- row renderer (skips DOM rebuild if nothing changed,
+   so taps are never lost to the 1-second refresh) ---------------- */
+const __sig = {};
+function renderRows(id, rows){
+  const sig = JSON.stringify(rows.map(r=>[r.icon,r.title,r.rw,r.label,r.cls,r.disabled]));
+  if(__sig[id]===sig) return;
+  __sig[id]=sig;
+  const wrap = document.getElementById(id); wrap.innerHTML="";
+  rows.forEach(r=> wrap.appendChild(taskRow(r.icon,r.title,r.rw,r.label,r.cls,r.disabled,r.onClick)));
+}
+function taskRow(icon,title,rewardText,btnLabel,btnCls,disabled,onClick){
+  const row=document.createElement("div"); row.className="trow";
+  row.innerHTML = `<div class="tic">${icon}</div><div class="tt"><b>${title}</b><span class="rw">${rewardText}</span></div><button class="${btnCls}" ${disabled?"disabled":""}><span>${btnLabel}</span></button>`;
+  if(!disabled) row.querySelector("button").onclick = onClick;
+  return row;
+}
+
 /* ================= MINE ================= */
 function renderMine(){
   const active = isActive();
   const badge = document.getElementById("activeBadge");
   badge.textContent = active ? "ACTIVE" : "INACTIVE";
   badge.className = "badge"+(active?"":" inactive");
-  document.getElementById("speedChip").textContent = "Speed "+fmt(mineRatePerHour()/3600,4)+" TS/s";
-  document.getElementById("pendingYield").innerHTML = fmt(pendingYield(),6)+"<small> TS</small>";
+  document.getElementById("speedChip").textContent = "Level "+S.level+" · "+fmt(mineRatePerHour(),0)+" TS/hr";
+  document.getElementById("pendingYield").innerHTML = fmt(pendingYield(),4)+"<small> TS</small>";
+  const leftMs = WINDOW_MS-(now()-S.lastClaim);
   document.getElementById("mineCaption").textContent = active
-    ? (()=>{ const r=CFG.ACTIVE_WINDOW_HOURS*3600000-(now()-S.lastClaim); return `Active ${Math.floor(r/3600000)}h ${Math.floor((r%3600000)/60000)}m left — claim before it ends.`; })()
+    ? "Active · "+hms(leftMs)+" left"
     : "Mining paused — claim now to restart.";
   const nothing = pendingYield() <= 0.000001;
   document.getElementById("bClaimFree").disabled = nothing;
   document.getElementById("bClaimAd").disabled = nothing;
+  const aLeft = adLeftSec("A");
+  document.getElementById("adSub").textContent = aLeft>0 ? "wait "+aLeft+"s" : "watch ad";
+
+  const ch = channelState();
+  renderRows("mineOpts", [
+    { icon:"⛏️", title: active?"Mining active":"Mining inactive",
+      rw: active ? "Tap to see your levels" : "Claim to restart mining",
+      label:"Levels →", cls:"tb", disabled:false, onClick:()=>goTab("levels") },
+    { icon:"📣", title:"Join our Telegram channel", rw:"+"+CFG.TASK_CHANNEL.reward+" TS",
+      label:ch.label, cls:ch.cls, disabled:ch.disabled, onClick:channelAction }
+  ]);
 }
 document.getElementById("bClaimFree").onclick = ()=> doClaim(1);
 document.getElementById("bClaimAd").onclick = ()=> watchAdsgram(()=> doClaim(CFG.AD_MULTIPLIER));
 function doClaim(mult){
   const y = pendingYield(); if(y<=0.000001) return;
   const total = y*mult;
-  addCoins(total); S.lastClaim = now();
+  addCoins(total);
+  S.lastClaim = now(); S.accrued = 0; S.accruedAt = S.lastClaim;
   save(); renderAll(); toast("+"+fmt(total,4)+" TS claimed"+(mult>1?" (2×)":""));
 }
 
@@ -541,7 +605,7 @@ function renderLevels(){
     const span = next.cost - cur.cost;
     const pct = span>0 ? Math.min(100,((S.coins-cur.cost)/span)*100) : 100;
     document.getElementById("lvlBar").style.width = Math.max(0,pct)+"%";
-    document.getElementById("lvlNote").textContent = fmt(Math.max(0,next.cost-S.coins),0)+" TS more to auto-reach Level "+next.lvl;
+    document.getElementById("lvlNote").textContent = fmt(Math.max(0,next.cost-S.coins),0)+" TS more to auto-reach Level "+next.lvl+" (you hold "+fmt(S.coins,2)+" TS)";
   } else {
     document.getElementById("lvlBar").style.width = "100%";
     document.getElementById("lvlNote").textContent = "Max level reached";
@@ -563,56 +627,52 @@ function renderLevels(){
 }
 
 /* ================= TASKS ================= */
+function channelState(){
+  const started=S.taskChannelStarted, done=S.taskChannelDone;
+  if(done) return {label:"Claimed", cls:"tb done", disabled:true};
+  if(!started) return {label:"Join", cls:"tb", disabled:false};
+  const el=(now()-started)/1000;
+  if(el<CFG.TASK_START_DELAY_SEC) return {label:Math.ceil(CFG.TASK_START_DELAY_SEC-el)+"s", cls:"tb wait", disabled:true};
+  return {label:"Claim", cls:"tb", disabled:false};
+}
+function channelAction(){
+  const st = channelState(); if(st.disabled) return;
+  if(!S.taskChannelStarted){ S.taskChannelStarted=now(); openLink(CFG.TASK_CHANNEL.url); save(); renderAll(); }
+  else { S.taskChannelDone=true; addCoins(CFG.TASK_CHANNEL.reward); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.TASK_CHANNEL.reward+" TS"); }
+}
+function reactState(){
+  const cdMs=CFG.TASK_REACT.cooldownHours*3600000;
+  if(S.lastReactClaim && (now()-S.lastReactClaim)<cdMs)
+    return {label:hms(cdMs-(now()-S.lastReactClaim)), cls:"tb off wide", disabled:true};
+  if(!S.reactStarted) return {label:"Start", cls:"tb", disabled:false};
+  const el=(now()-S.reactStarted)/1000;
+  if(el<CFG.TASK_START_DELAY_SEC) return {label:Math.ceil(CFG.TASK_START_DELAY_SEC-el)+"s", cls:"tb wait", disabled:true};
+  return {label:"Claim", cls:"tb", disabled:false};
+}
+function reactAction(){
+  const st = reactState(); if(st.disabled) return;
+  if(!S.reactStarted){ S.reactStarted=now(); openLink(CFG.TASK_REACT.url); save(); renderAll(); }
+  else { S.lastReactClaim=now(); S.reactStarted=0; addCoins(CFG.TASK_REACT.reward); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.TASK_REACT.reward+" TS"); }
+}
 function renderTasks(){
-  const wrap = document.getElementById("taskList"); wrap.innerHTML="";
-
-  { const started=S.taskChannelStarted, done=S.taskChannelDone;
-    const elapsed = started?(now()-started)/1000:0;
-    const ready = started && !done && elapsed>=CFG.TASK_START_DELAY_SEC;
-    const waiting = started && !done && elapsed<CFG.TASK_START_DELAY_SEC;
-    const label = done?"Done":ready?"Claim":waiting?Math.ceil(CFG.TASK_START_DELAY_SEC-elapsed)+"s":"Start";
-    const cls = done?"tb done":waiting?"tb wait":"tb";
-    wrap.appendChild(taskRow("📣","Join TS Coin channel","+"+CFG.TASK_CHANNEL.reward+" TS",label,cls,waiting||done,()=>{
-      if(!started){ S.taskChannelStarted=now(); openLink(CFG.TASK_CHANNEL.url); save(); renderAll(); }
-      else if(ready){ S.taskChannelDone=true; addCoins(CFG.TASK_CHANNEL.reward); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.TASK_CHANNEL.reward+" TS"); }
-    }));
-  }
-  { const cdMs=CFG.TASK_REACT.cooldownHours*3600000;
-    const onCooldown = S.lastReactClaim && (now()-S.lastReactClaim)<cdMs;
-    const started=S.reactStarted, doneWindow = started && (now()-started)/1000>=CFG.TASK_START_DELAY_SEC;
-    let label,cls,blocked=false;
-    if(onCooldown){ const left=cdMs-(now()-S.lastReactClaim); label=Math.floor(left/3600000)+"h "+Math.floor((left%3600000)/60000)+"m"; cls="tb off"; blocked=true; }
-    else if(!started){ label="Start"; cls="tb"; }
-    else if(!doneWindow){ label=Math.ceil(CFG.TASK_START_DELAY_SEC-(now()-started)/1000)+"s"; cls="tb wait"; blocked=true; }
-    else { label="Claim"; cls="tb"; }
-    wrap.appendChild(taskRow("💬","React to last post","+"+CFG.TASK_REACT.reward+" TS (every 3h)",label,cls,blocked,()=>{
-      if(onCooldown) return;
-      if(!started){ S.reactStarted=now(); openLink(CFG.TASK_REACT.url); save(); renderAll(); }
-      else if(doneWindow){ S.lastReactClaim=now(); S.reactStarted=0; addCoins(CFG.TASK_REACT.reward); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.TASK_REACT.reward+" TS"); }
-    }));
-  }
-  { if(S.adADay!==todayKey()){ S.adADay=todayKey(); S.adACount=0; }
-    const left = CFG.AD_A_DAILY_CAP-S.adACount;
-    wrap.appendChild(taskRow("🎬","Quick ad","+"+CFG.AD_A_REWARD+" TS · "+Math.max(0,left)+"/"+CFG.AD_A_DAILY_CAP+" today",left<=0?"0 left":"Watch",left<=0?"tb off":"tb",left<=0,()=>{
-      if(left<=0){ toast("Come back tomorrow"); return; }
-      watchAdsgram(()=>{ S.adACount++; S.adATotal++; addCoins(CFG.AD_A_REWARD); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.AD_A_REWARD+" TS"); });
-    }));
-  }
-  { if(S.adBDay!==todayKey()){ S.adBDay=todayKey(); S.adBCount=0; }
-    const left = CFG.AD_B_DAILY_CAP-S.adBCount;
-    wrap.appendChild(taskRow("🎞️","Partner ad","+"+CFG.AD_B_REWARD+" TS · "+Math.max(0,left)+"/"+CFG.AD_B_DAILY_CAP+" today",left<=0?"0 left":"Watch",left<=0?"tb off":"tb",left<=0,()=>{
-      if(left<=0){ toast("Come back tomorrow"); return; }
-      watchMonetag(()=>{ S.adBCount++; S.adBTotal++; addCoins(CFG.AD_B_REWARD); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.AD_B_REWARD+" TS"); });
-    }));
-  }
+  const ch = channelState(), rc = reactState();
+  if(S.adADay!==todayKey()){ S.adADay=todayKey(); S.adACount=0; }
+  if(S.adBDay!==todayKey()){ S.adBDay=todayKey(); S.adBCount=0; }
+  const leftA = CFG.AD_A_DAILY_CAP-S.adACount, leftB = CFG.AD_B_DAILY_CAP-S.adBCount;
+  const cdA = adLeftSec("A"), cdB = adLeftSec("B");
+  const adBtn = (left,cd)=> left<=0 ? {label:"0 left",cls:"tb off",disabled:true}
+                         : cd>0    ? {label:cd+"s",cls:"tb wait",disabled:true}
+                                   : {label:"Watch",cls:"tb",disabled:false};
+  const a = adBtn(leftA,cdA), b = adBtn(leftB,cdB);
+  renderRows("taskList", [
+    { icon:"📣", title:"Join TS Coin channel", rw:"+"+CFG.TASK_CHANNEL.reward+" TS", ...ch, onClick:channelAction },
+    { icon:"💬", title:"React to last post", rw:"+"+CFG.TASK_REACT.reward+" TS (every 3h)", ...rc, onClick:reactAction },
+    { icon:"🎬", title:"Quick ad", rw:"+"+CFG.AD_A_REWARD+" TS · "+Math.max(0,leftA)+"/"+CFG.AD_A_DAILY_CAP+" today", ...a,
+      onClick:()=> watchAdsgram(()=>{ S.adACount++; S.adATotal++; addCoins(CFG.AD_A_REWARD); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.AD_A_REWARD+" TS"); }) },
+    { icon:"🎞️", title:"Partner ad", rw:"+"+CFG.AD_B_REWARD+" TS · "+Math.max(0,leftB)+"/"+CFG.AD_B_DAILY_CAP+" today", ...b,
+      onClick:()=> watchMonetag(()=>{ S.adBCount++; S.adBTotal++; addCoins(CFG.AD_B_REWARD); save(); checkReferralQualification(); renderAll(); toast("+"+CFG.AD_B_REWARD+" TS"); }) }
+  ].map(r=>({label:r.label,cls:r.cls,disabled:r.disabled,...r})));
 }
-function taskRow(icon,title,rewardText,btnLabel,btnCls,disabled,onClick){
-  const row=document.createElement("div"); row.className="trow";
-  row.innerHTML = `<div class="tic">${icon}</div><div class="tt"><b>${title}</b><span class="rw">${rewardText}</span></div><button class="${btnCls}" ${disabled?"disabled":""}><span>${btnLabel}</span></button>`;
-  if(!disabled) row.querySelector("button").onclick = onClick;
-  return row;
-}
-setInterval(renderTasks, 1000);
 
 /* ================= TEAM ================= */
 function renderTeam(){
@@ -654,6 +714,7 @@ document.getElementById("bWithdraw").onclick = ()=>{
   if(!amt || amt<=0){ toast("Enter an amount"); return; }
   if(amt < CFG.MIN_WITHDRAW){ toast("Minimum is "+fmt(CFG.MIN_WITHDRAW,0)+" TS"); return; }
   if(amt > S.coins){ toast("Not enough balance"); return; }
+  settle();                       // bank mined yield at the old level before balance drops
   S.coins -= amt;
   S.withdrawals.push({at:now(), amount:amt, addr, status:"queued"});
   save(); renderAll();
@@ -671,15 +732,13 @@ const DOCK_ICONS = {
 };
 const TABS=[["mine","Mine"],["levels","Levels"],["tasks","Tasks"],["team","Team"],["wallet","Wallet"]];
 document.getElementById("dock").innerHTML = TABS.map((t,i)=>`<button class="dk${i?"":" on"}" data-p="${t[0]}"><span class="di">${DOCK_ICONS[t[0]]}</span>${t[1]}</button>`).join("");
-document.querySelectorAll(".dk").forEach(btn=>{
-  btn.onclick = ()=>{
-    document.querySelectorAll(".dk").forEach(b=>b.classList.remove("on"));
-    document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
-    btn.classList.add("on");
-    document.getElementById("page-"+btn.dataset.p).classList.add("on");
-    if(btn.dataset.p==="team") syncIncomingReferrals();
-  };
-});
+function goTab(name){
+  document.querySelectorAll(".dk").forEach(b=>b.classList.toggle("on", b.dataset.p===name));
+  document.querySelectorAll(".page").forEach(p=>p.classList.toggle("on", p.id==="page-"+name));
+  window.scrollTo(0,0);
+  if(name==="team") syncIncomingReferrals();
+}
+document.querySelectorAll(".dk").forEach(btn=>{ btn.onclick = ()=> goTab(btn.dataset.p); });
 
 /* ================= RENDER ALL ================= */
 function renderAll(){
