@@ -319,10 +319,7 @@ main{flex:1;padding:14px 18px 110px}
 
 <script type="module">
 "use strict";
-/* ---------------- FIREBASE ---------------- */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
+/* ---------------- FIREBASE (lazy-loaded — see syncToFirebase) ---------------- */
 const firebaseConfig = {
   apiKey: "AIzaSyBEb3_43009CjZcboqaBZGLcHwIepLVriI",
   authDomain: "pommer-orchard.firebaseapp.com",
@@ -333,9 +330,18 @@ const firebaseConfig = {
   appId: "1:416526455294:web:a486339a479d62c783b0af",
   measurementId: "G-Y47JMSD2RB"
 };
-const fbApp = initializeApp(firebaseConfig);
-const db = getFirestore(fbApp);
 const USERS_COL = "tscoin_users";
+let __fb = null; // {db, doc, setDoc} once loaded
+async function getFirebase(){
+  if(__fb) return __fb;
+  const [{ initializeApp }, { getFirestore, doc, setDoc }] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js")
+  ]);
+  const fbApp = initializeApp(firebaseConfig);
+  __fb = { db: getFirestore(fbApp), doc, setDoc };
+  return __fb;
+}
 
 const tg = window.Telegram && window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
@@ -401,6 +407,7 @@ function queueFirebaseSync(){
 }
 async function syncToFirebase(){
   try{
+    const { db, doc, setDoc } = await getFirebase();
     const ref = doc(db, USERS_COL, telegramUserId());
     await setDoc(ref, {
       coins:S.coins, totalEarned:S.totalEarned, level:S.level,
